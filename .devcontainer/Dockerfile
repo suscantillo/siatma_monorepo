@@ -1,8 +1,8 @@
 # Start from a standard Ubuntu Linux computer.
 FROM mcr.microsoft.com/devcontainers/base:ubuntu-22.04
 
-# Install all the extra tools Flutter needs to build apps.
-# We are including 'adb' here for Android development, plus 'wget' and 'unzip'.
+# Install all system dependencies in one go
+# ADDED: wget, unzip, and a Java Development Kit (JDK) for the Android toolchain
 RUN sudo apt-get update && sudo apt-get install -y \
     curl \
     git \
@@ -16,40 +16,41 @@ RUN sudo apt-get update && sudo apt-get install -y \
     ninja-build \
     pkg-config \
     libgtk-3-dev \
-    adb
+    adb \
+    openjdk-17-jdk
 
-# Use the 'vscode' user that the base image provides.
+# Switch to the non-root 'vscode' user for security and permissions
 USER vscode
 WORKDIR /home/vscode
 
-# Set environment variable for Android SDK root
+# --- Setup Android SDK ---
+# 1. Set environment variables that Android tools and Flutter will need
 ENV ANDROID_SDK_ROOT="/home/vscode/android-sdk"
+ENV JAVA_HOME="/usr/lib/jvm/java-17-openjdk-amd64"
+ENV PATH="${PATH}:${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin:${ANDROID_SDK_ROOT}/platform-tools"
 
-# --- NEW: Install Android Command-Line Tools ---
+# 2. Install the Android Command-Line Tools
 RUN mkdir -p ${ANDROID_SDK_ROOT}/cmdline-tools && \
     wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O android-sdk.zip && \
     unzip -q android-sdk.zip -d ${ANDROID_SDK_ROOT}/cmdline-tools && \
     mv ${ANDROID_SDK_ROOT}/cmdline-tools/cmdline-tools ${ANDROID_SDK_ROOT}/cmdline-tools/latest && \
     rm android-sdk.zip
 
-# Add Flutter and the new Android SDK tools to the PATH.
-# This MUST come after the installations.
-ENV PATH="/home/vscode/flutter/bin:${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin:${ANDROID_SDK_ROOT}/platform-tools:${PATH}"
-
-# Download the Flutter software into our cloud computer.
+# --- Setup Flutter ---
+# 1. Clone the Flutter SDK
 RUN git clone https://github.com/flutter/flutter.git --depth 1 --branch 3.22.2 /home/vscode/flutter
 
-# Download all the necessary parts of Flutter so it's ready to go.
+# 2. Add Flutter's commands to the PATH
+ENV PATH="/home/vscode/flutter/bin:${PATH}"
+
+# 3. Explicitly tell Flutter where to find the Android SDK
+RUN flutter config --android-sdk ${ANDROID_SDK_ROOT}
+
+# 4. Download all of Flutter's own tools and dependencies
 RUN flutter precache
 
-# --- NOW THIS WILL WORK ---
-# Automatically accept the Android licenses.
-RUN yes | flutter doctor --android-licenses
+# 5. Use the Android SDK's own tool to accept all licenses. This is more reliable.
+RUN yes | sdkmanager --licenses
 
-# Final check
+# 6. Run a final diagnostic check to ensure everything is perfect.
 RUN flutter doctor -v
-# Download all the necessary parts of Flutter so it's ready to go.
-RUN flutter precache
-
-# Automatically accept the Android licenses.
-RUN yes | flutter doctor --android-licenses
