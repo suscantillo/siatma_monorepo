@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Probar /predict</title>
+</head>
+<body>
+  <h2>Test rápido del endpoint /predict</h2>
+  <button onclick="probarAPI()">Enviar predicción</button>
+  <pre id="respuesta"></pre>
+
+  <script>
+    async function probarAPI() {
+      const datos = {
+        "X": -75.564444,
+        "Y": 5.235556,
+        "Mes": 8,
+        "rain_3d": 74.5,
+        "rain_7d": 198.0,
+        "rain_15d": 484.2,
+        "rain_30d": 928.2,
+        "heavy_rain_days": 15,
+        "max_daily_rain": 64.6,
+        "soil_moisture_proxy": 827.89,
+        "antecedent_moisture_x_maxrain": 53481.694,
+        "precip_temp_ratio": 1.83474995058312,
+        "humidity_index": 1.73203955961933,
+        "mean_precip": 30.94,
+        "mean_temp": 16.8633333333333,
+        "mean_humidity": 86.5333333333333,
+        "temp_range": 1.9,
+        "precip_variability": 14.0796922314848,
+        "dry_days_before": 0,
+        "slope_x_rain3d": 1491.929115295413,
+        "mean_et0": 3.34366666666667,
+        "total_et0": 100.31,
+        "water_balance": 827.89,
+        "lon": 4715843.97220841,
+        "lat": 2137100.91884618,
+        "slope": 20.0258941650391,
+        "altura": 1712.0
+      };
+
+      const res = await fetch("http://localhost:5000/predict", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(datos)
+      });
+
+      const json = await res.json();
+      document.getElementById("respuesta").textContent = JSON.stringify(json, null, 2);
+    }
+  </script>
+</body>
+</html>
