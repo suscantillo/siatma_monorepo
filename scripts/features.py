@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import os
 
 def calcular_features(df,ruta):
     """
@@ -74,12 +75,7 @@ def calcular_features(df,ruta):
         # Feature combinado: humedad antecedente × lluvia máxima
         # Según el artículo, esta combinación incrementa la probabilidad de movimientos en masa
         antecedent_moisture_x_maxrain = soil_moisture_proxy * max_daily_rain
-        
-        # Feature pendiente × lluvia 3 días (slope_x_rain3d)
-        # Nota: No veo columna de pendiente en los datos, asumo que X,Y se pueden usar
-        # para calcular algún proxy de pendiente o se debe agregar después
-        slope_x_rain3d = 0  # Se calculará después cuando agregue datos de pendiente
-        
+          
         # Otros features útiles
         mean_humidity = np.mean(event_data['relative_humidity_2m_mean'])
         std_precip = np.std(event_data['precipitation_sum'])
@@ -129,7 +125,8 @@ def calcular_features(df,ruta):
             'dry_days_before': dry_days_before,
             
             # Feature combinado (se calculará después con datos de pendiente)
-            'slope_x_rain3d': slope_x_rain3d,
+            'slope': df['slope'].iloc[0] if 'slope' in df.columns else np.nan,
+            'altura': df['altura'].iloc[0] if 'altura' in df.columns else np.nan,
             
             # Features de evapotranspiración
             'mean_et0': np.mean(event_data['et0_fao_evapotranspiration']),
@@ -142,12 +139,14 @@ def calcular_features(df,ruta):
     # Convertir a DataFrame
     result_df = pd.DataFrame(features_list)
 
-    # cuando agregue datos de pendiente, su calcula slope_x_rain3d aquí
-    # result_df['slope_x_rain3d'] = result_df['slope'] * result_df['rain_3d']
-    
+    # Feature pendiente × lluvia 3 días (slope_x_rain3d)
+    result_df['slope_x_rain3d'] = result_df['slope'] * result_df['rain_3d']
+    result_df["lat"]=df["lat"]
+    result_df["lon"]=df["lon"]
     # Guardar el resultado
-    result_df.to_csv(ruta, index=False)
-    
+    archivo_existe = os.path.isfile(ruta)
+    result_df.to_csv(ruta, index=False,mode='a',header=not archivo_existe)
+
     print(f"Features extraídos para {len(result_df)} eventos")
     print(f"Columnas generadas: {list(result_df.columns)}")
     

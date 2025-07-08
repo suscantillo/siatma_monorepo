@@ -1,13 +1,24 @@
+import json
 import pandas as pd
 import requests
-import time
 from datetime import timedelta
-import random
 import numpy as np
 import rasterio
+import uuid
 from pyproj import Transformer
-def obtener_clima_30d(lat, lon, fecha_evento):
-    """Obtiene datos diarios para los 30 días antes de fecha_evento"""
+
+import requests
+import pandas as pd
+from datetime import timedelta
+import uuid
+
+def obtener_clima_30d(lon, lat, fecha_evento):
+    """Devuelve un DataFrame limpio con datos climáticos de los 30 días previos"""
+
+    hoy = pd.Timestamp.now().date()
+    if (hoy - fecha_evento).days <= 1:
+        fecha_evento = hoy - timedelta(days=3)
+
     start_date = fecha_evento - timedelta(days=30)
     end_date = fecha_evento - timedelta(days=1)
 
@@ -18,9 +29,9 @@ def obtener_clima_30d(lat, lon, fecha_evento):
         "start_date": start_date.strftime("%Y-%m-%d"),
         "end_date": end_date.strftime("%Y-%m-%d"),
         "daily": [
-            "temperature_2m_max", "temperature_2m_min", "temperature_2m_mean",
-            "precipitation_sum", "relative_humidity_2m_max", "relative_humidity_2m_min",
-            "relative_humidity_2m_mean", "pressure_msl_mean", "wind_speed_10m_max",
+            "temperature_2m_mean",
+            "precipitation_sum",
+            "relative_humidity_2m_mean",
             "et0_fao_evapotranspiration"
         ],
         "timezone": "America/Bogota"
@@ -30,9 +41,36 @@ def obtener_clima_30d(lat, lon, fecha_evento):
         response = requests.get(url, params=params)
         response.raise_for_status()
         data = response.json()
-        return data.get("daily", {})
-    except requests.exceptions.RequestException as e:
-        print(f"Error para lat={lat}, lon={lon}, fecha_evento={fecha_evento}: {e}")
+        
+        # Debug: ver la estructura completa de la respuesta
+        #import json
+        #print("Respuesta completa de la API:")
+        #print(json.dumps(data, indent=2, default=str))
+        
+        if "daily" not in data or "time" not in data["daily"]:
+            print("API devolvió datos vacíos o incompletos")
+            return None
+
+        # Crear DataFrame
+        df = pd.DataFrame(data["daily"])
+        
+        # Renombrar columna de tiempo
+        df.rename(columns={"time": "fecha_clima"}, inplace=True)
+        
+        # Convertir fecha_clima a datetime si es string
+        if df["fecha_clima"].dtype == 'object':
+            df["fecha_clima"] = pd.to_datetime(df["fecha_clima"])
+        
+        # Agregar metadatos
+        df["fecha_evento"] = fecha_evento
+        df["id"] = str(uuid.uuid4())[:8]
+        
+        return df
+
+    except Exception as e:
+        print(f"Error obteniendo clima: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 def ver_propiedades_tif(file_path):

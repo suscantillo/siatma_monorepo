@@ -5,11 +5,17 @@ import numpy as np
 import joblib
 from datetime import datetime
 import os
+import sys
+import traceback
 
 # Importar clase del modelo
 from model import SIATMAEnsembleModel 
 
 modelo_path = os.path.join(os.path.dirname(__file__), '..', 'models', 'siatma_ensemble_v1')
+
+#Importar el pipeline de generación de features
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "scripts")))
+from pipeline import generar_features_para_prediccion
 
 
 app = Flask(__name__)
@@ -101,12 +107,6 @@ def predict_single():
     {
         "X": -75.123,
         "Y": 6.456,
-        "Mes": 11,
-        "rain_3d": 45.2,
-        "rain_7d": 89.5,
-        "slope": 25.3,
-        "altura": 2150,
-        ... (todas las características del modelo)
     }
     """
     try:
@@ -115,20 +115,16 @@ def predict_single():
         
         # Obtener datos del request
         data = request.json
+        print("Datos recibidos para predicción:", data)
+        if not data or 'X' not in data or 'Y' not in data:
+            return jsonify({'error': 'Faltan coordenadas: se requieren X y Y'}), 400
+
+        x = data['X']
+        y = data['Y']
         
-        if not data:
-            return jsonify({'error': 'No se enviaron datos'}), 400
-        
-        # Convertir a DataFrame
-        df = pd.DataFrame([data])
-        
-        # Verificar que tenga todas las columnas necesarias
-        missing_cols = set(modelo.feature_columns) - set(df.columns)
-        if missing_cols:
-            return jsonify({
-                'error': f'Faltan columnas: {list(missing_cols)}',
-                'columnas_requeridas': modelo.feature_columns
-            }), 400
+        # Generar features usando el pipeline completo
+        df_features = generar_features_para_prediccion(x, y)
+        df = df_features[modelo.feature_columns]
         
         # Reordenar columnas según el modelo
         df = df[modelo.feature_columns]
@@ -165,6 +161,8 @@ def predict_single():
         return jsonify(resultado)
         
     except Exception as e:
+        print("Error en /predict:")
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/batch_predict', methods=['POST'])
@@ -175,8 +173,8 @@ def predict_batch():
     Ejemplo de request:
     {
         "data": [
-            {"X": -75.123, "Y": 6.456, "rain_3d": 45.2, ...},
-            {"X": -75.124, "Y": 6.457, "rain_3d": 32.1, ...},
+            {"X": -75.123, "Y": 6.456},
+            {"X": -75.124, "Y": 6.457},
             ...
         ]
     }
@@ -191,56 +189,56 @@ def predict_batch():
         if not request_data or 'data' not in request_data:
             return jsonify({'error': 'Formato incorrecto. Usar: {"data": [...]'}), 400
         
-        batch_data = request_data['data']
+        raw_coords = request_data['data']
+        df_final = []
+
+        for punto in raw_coords:
+            x = punto.get('X')
+            y = punto.get('Y')
+            if x is None or y is None:
+                continue  # Saltar puntos sin coordenadas
         
-        # Convertir a DataFrame
-        df = pd.DataFrame(batch_data)
+            # Convertir a DataFrame
+            try:
+                df_feat = generar_features_para_prediccion(x, y)
+                df_feat = df_feat[modelo.feature_columns]
+                df_final.append((punto, df_feat))
+            except Exception as e:
+                print(f"Error procesando punto {x},{y}: {e}")
         
-        # Verificar columnas
-        missing_cols = set(modelo.feature_columns) - set(df.columns)
-        if missing_cols:
-            return jsonify({
-                'error': f'Faltan columnas: {list(missing_cols)}',
-                'columnas_requeridas': modelo.feature_columns
-            }), 400
-        
-        # Reordenar columnas
-        df = df[modelo.feature_columns]
-        
+        if not df_final:
+            return jsonify({'error': 'No se pudieron procesar las ubicaciones'}), 400
+
+         # Unir todos los features en un solo DataFrame
+        features_batch = pd.concat([item[1] for item in df_final], ignore_index=True)
+
         # Hacer predicciones
-        predictions, probabilities = modelo.predict_ensemble(df)
+        predictions, probabilities = modelo.predict_ensemble(features_batch)
         
-        # Procesar resultados
+        # Armar respuesta
         resultados = []
-        for i, (pred, prob) in enumerate(zip(predictions, probabilities)):
+        for i, (entrada, prob, pred) in enumerate(zip(df_final, probabilities, predictions)):
+            x = entrada[0]['X']
+            y = entrada[0]['Y']
             risk_level = get_risk_level(prob)
-            
             resultados.append({
-                'index': i,
-                'riesgo_deslizamiento': bool(pred),
-                'probabilidad': float(prob),
-                'nivel_riesgo': risk_level,
-                'ubicacion': {
-                    'X': batch_data[i].get('X'),
-                    'Y': batch_data[i].get('Y')
-                }
+                "index": i,
+                "X": x,
+                "Y": y,
+                "riesgo_deslizamiento": bool(pred),
+                "probabilidad": float(prob),
+                "nivel_riesgo": risk_level
             })
-        
-        # Estadísticas del batch
-        high_risk_count = sum(1 for r in resultados if r['nivel_riesgo'] in ['ALTO', 'CRÍTICO'])
-        avg_probability = np.mean(probabilities)
-        
+
         return jsonify({
-            'predicciones': resultados,
-            'resumen': {
-                'total_puntos': len(resultados),
-                'riesgo_alto_critico': high_risk_count,
-                'probabilidad_promedio': float(avg_probability),
-                'porcentaje_riesgo': (high_risk_count / len(resultados)) * 100
-            },
-            'timestamp': datetime.now().isoformat()
+            "predicciones": resultados,
+            "resumen": {
+                "total_puntos": len(resultados),
+                "riesgo_alto_critico": sum(r["nivel_riesgo"] in ["ALTO", "CRÍTICO"] for r in resultados),
+                "timestamp": datetime.now().isoformat()
+            }
         })
-        
+
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
